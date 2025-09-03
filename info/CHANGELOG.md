@@ -1,5 +1,29 @@
 # Changelog
 
+## 2025-09-03
+
+### Fixed
+
+- Missing include in "PointAndPrint.ps1" build process (see issue #73).
+
+## 2025-09-01
+
+### Fixed
+
+- Improper handling of null data in 'Set-CachedData'.
+
+## 2025-08-30
+
+### Added
+
+- Dedicated helper function for retrieving Credential Guard configuration and status.
+
+## 2025-08-28
+
+### Modified
+
+- Transition from manual release to automated release using GitHub Actions.
+
 ## 2025-08-26
 
 ### Modified

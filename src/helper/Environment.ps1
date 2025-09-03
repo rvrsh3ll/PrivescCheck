@@ -20,7 +20,10 @@ function Get-CurrentUserDenySid {
     param()
 
     if (-not (Test-CachedData -Name "CurrentUserDenySids")) {
-        $CurrentUserDenySids = [string[]](Get-TokenInformationGroup -InformationClass Groups | Where-Object { $_.Attributes.Equals("UseForDenyOnly") } | Select-Object -ExpandProperty SID)
+        $CurrentUserDenySids = @()
+        Get-TokenInformationGroup -InformationClass Groups | Where-Object { $_.Attributes.Equals("UseForDenyOnly") } | Select-Object -ExpandProperty SID | ForEach-Object {
+            $CurrentUserDenySids += $_
+        }
         Set-CachedData -Name "CurrentUserDenySids" -Data $CurrentUserDenySids
     }
 
@@ -33,7 +36,8 @@ function Get-InstalledApplication {
     param ()
 
     if (-not (Test-CachedData -Name "InstalledApplicationList")) {
-        $InstalledApplicationList = Get-InstalledApplicationHelper
+        $InstalledApplicationList = @()
+        Get-InstalledApplicationHelper | ForEach-Object { $InstalledApplicationList += $_ }
         Set-CachedData -Name "InstalledApplicationList" -Data $InstalledApplicationList
     }
 
@@ -1085,8 +1089,7 @@ function Get-KnownVulnerableKernelDriver {
     )
 
     begin {
-        Write-Verbose "Initializing list of vulnerable driver hashes..."
-        $VulnerableDriverHashes = Get-KnownVulnerableKernelDriverList
+        $VulnerableDrivers = Get-KnownVulnerableKernelDriverList
         $FsRedirectionValue = Disable-Wow64FileSystemRedirection
     }
 
@@ -1099,49 +1102,67 @@ function Get-KnownVulnerableKernelDriver {
         $FileHashSha1 = ""
         $FileHashSha256 = ""
 
-        foreach ($VulnerableDriverHash in $VulnerableDriverHashes) {
+        foreach ($VulnerableDriver in $VulnerableDrivers) {
 
-            switch ($VulnerableDriverHash.HashType) {
+            $Hashes = [String[]] $VulnerableDriver.Hash.Split(",")
 
-                "Md5" {
-                    if ([String]::IsNullOrEmpty($FileHashMd5)) { $FileHashMd5 = Get-FileHashHex -FilePath $Service.ImagePathResolved -Algorithm MD5 }
-                    if ($VulnerableDriverHash.Hash -contains $FileHashMd5) {
+            if ($Hashes.Count -eq 0) {
+                Write-Warning "No hash found for entry with ID: $($VulnerableDriver.Id)"
+                continue
+            }
+
+            $HashLength = $Hashes[0].Length
+
+            switch ($HashLength) {
+
+                32 {
+                    # MD5 hash
+                    if ([String]::IsNullOrEmpty($FileHashMd5)) {
+                        $FileHashMd5 = Get-FileHashHex -FilePath $Service.ImagePathResolved -Algorithm MD5
+                    }
+                    if ($Hashes -contains $FileHashMd5) {
                         $ResultHash = $FileHashMd5
-                        $ResultUrl = $VulnerableDriverHash.Url
+                        $ResultUrl = $VulnerableDriver.Url
                     }
                     break
                 }
 
-                "Sha1" {
-                    if ([String]::IsNullOrEmpty($FileHashSha1)) { $FileHashSha1 = Get-FileHashHex -FilePath $Service.ImagePathResolved -Algorithm SHA1 }
-                    if ($VulnerableDriverHash.Hash -contains $FileHashSha1) {
+                40 {
+                    # SHA1 hash
+                    if ([String]::IsNullOrEmpty($FileHashSha1)) {
+                        $FileHashSha1 = Get-FileHashHex -FilePath $Service.ImagePathResolved -Algorithm SHA1
+                    }
+                    if ($Hashes -contains $FileHashSha1) {
                         $ResultHash = $FileHashSha1
-                        $ResultUrl = $VulnerableDriverHash.Url
+                        $ResultUrl = $VulnerableDriver.Url
                     }
                     break
                 }
 
-                "Sha256" {
-                    if ([String]::IsNullOrEmpty($FileHashSha256)) { $FileHashSha256 = Get-FileHashHex -FilePath $Service.ImagePathResolved -Algorithm SHA256 }
-                    if ($VulnerableDriverHash.Hash -contains $FileHashSha256) {
+                64 {
+                    # SHA256 hash
+                    if ([String]::IsNullOrEmpty($FileHashSha256)) {
+                        $FileHashSha256 = Get-FileHashHex -FilePath $Service.ImagePathResolved -Algorithm SHA256
+                    }
+                    if ($Hashes -contains $FileHashSha256) {
                         $ResultHash = $FileHashSha256
-                        $ResultUrl = $VulnerableDriverHash.Url
+                        $ResultUrl = $VulnerableDriver.Url
                     }
                     break
                 }
 
                 default {
-                    Write-Warning "Empty or invalid hash type: '$($VulnerableDriverHash.HashType)' ($($VulnerableDriverHash.Url))"
+                    Write-Warning "Empty or invalid hash type for entry: $($VulnerableDriver.Id)"
                 }
             }
 
-            if (-not [String]::IsNullOrEmpty($ResultHash)) {
-                $Result = $Service.PSObject.Copy()
-                $Result | Add-Member -MemberType "NoteProperty" -Name "FileHash" -Value $ResultHash
-                $Result | Add-Member -MemberType "NoteProperty" -Name "Url" -Value $ResultUrl
-                $Result
-                break
-            }
+            if ([String]::IsNullOrEmpty($ResultHash)) { continue }
+
+            $Result = $Service.PSObject.Copy()
+            $Result | Add-Member -MemberType "NoteProperty" -Name "FileHash" -Value $ResultHash
+            $Result | Add-Member -MemberType "NoteProperty" -Name "Url" -Value $ResultUrl
+            $Result
+            break
         }
     }
 
